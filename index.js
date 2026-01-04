@@ -1,0 +1,270 @@
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
+const cookieParser = require("cookie-parser");
+const jwt = require("jsonwebtoken");
+const { initializeDatabase } = require("./db/db.connect");
+const { setSecureCookie } = require("./services");
+const User = require("./models/User.model");
+const Album = require("./models/Album.model");
+const Image = require("./models/Image.model");
+const { verifyJWT } = require("./middleware/verifyJWT");
+require("dotenv").config();
+
+const PORT = process.env.PORT || 4000;
+
+const app = express();
+app.use(
+  cors({
+    credentials: true,
+    origin: "http://localhost:3000",
+  })
+);
+app.use(express.json());
+app.use(cookieParser());
+
+initializeDatabase();
+
+app.get("/", (req, res) => {
+  res.send(`<h1>Welcome to Google OAuth</h1>`);
+});
+
+app.get("/auth/google", (req, res) => {
+  const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=http://localhost:${PORT}/auth/google/callback&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=consent`;
+
+  res.redirect(googleAuthUrl);
+});
+
+app.get("/auth/google/callback", async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send("No code");
+
+  try {
+    // 1. Exchange code for Google access token
+    const tokenResponse = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      {
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: `http://localhost:${PORT}/auth/google/callback`,
+      }
+    );
+
+    const googleAccessToken = tokenResponse.data.access_token;
+
+    // 2. Fetch Google user info ONCE
+    const googleUserRes = await axios.get(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${googleAccessToken}`,
+        },
+      }
+    );
+
+    const { email, name, picture } = googleUserRes.data;
+
+    // 3. Save / update user in DB
+    let user = await User.findOne({ email });
+
+    if (user) {
+      user.name = name;
+      user.picture = picture;
+      user.provider = "google";
+
+      await user.save();
+    } else {
+      user = await User.create({
+        email,
+        name,
+        picture,
+        provider: "google",
+      });
+    }
+
+    // 4. Create JWT payload
+    const payload = {
+      userId: user._id,
+    };
+
+    // 5. Sign JWT
+    const token = jwt.sign(payload, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRES_IN,
+    });
+
+    // 6. Store JWT in HTTP-only cookie
+    setSecureCookie(res, token);
+
+    // 7. Redirect to frontend
+    res.redirect(`${process.env.FRONTEND_URL}/v2/profile/google`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Google OAuth failed");
+  }
+});
+
+app.get("/user/profile", verifyJWT, async (req, res) => {
+  const user = await User.findById(req.user.userId).select(
+    "email name picture provider"
+  );
+
+  res.json({ user });
+});
+
+// Create Album
+app.post("/albums", async (req, res) => {
+  try {
+    const saveNewAlbum = new Album(req.body);
+    const savedAlbum = await saveNewAlbum.save();
+
+    return res
+      .status(201)
+      .json({ message: "Album created successfully.", album: savedAlbum });
+  } catch (error) {
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyValue)[0];
+      return res.status(400).json({ error: `${field} already exists` });
+    }
+
+    if (error.name === "ValidationError") {
+      const field = Object.keys(error.errors)[0];
+      const message = error.errors[field].message;
+
+      return res.status(400).json({
+        error: `Invalid Input: '${field}' is required.`,
+        details: message,
+      });
+    }
+
+    res.status(500).json({ error: "Failed to add album." });
+  }
+});
+
+// Update Album Description
+app.put("/albums/:albumId", async (req, res) => {
+  const { albumId } = req.params;
+  const { description } = req.body;
+
+  try {
+    const updateAlbum = await Album.findByIdAndUpdate(
+      albumId,
+      { description },
+      {
+        new: true,
+      }
+    );
+
+    if (!updateAlbum) {
+      return res.status(404).json({ error: "Album not found." });
+    }
+
+    return res.json({ message: "Description updated.", album: updateAlbum });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update album." });
+  }
+});
+
+//  Add Users to Album
+app.post("/albums/:albumId/share", async (req, res) => {
+  const { albumId } = req.params;
+  const { emails } = req.body;
+
+  //  Validate payload
+  if (!Array.isArray(emails) || emails.length === 0) {
+    return res.status(400).json({
+      error: "emails must be a non-empty array",
+    });
+  }
+
+  //  Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const invalidEmails = emails.filter((email) => !emailRegex.test(email));
+
+  if (invalidEmails.length > 0) {
+    return res.status(400).json({
+      error: "Invalid email(s) provided",
+      invalidEmails,
+    });
+  }
+
+  try {
+    //  Find album
+    const album = await Album.findById(albumId);
+
+    if (!album) {
+      return res.status(404).json({
+        error: "Album not found",
+      });
+    }
+
+    //  Ensure users exist in system
+    const users = await User.find({
+      email: { $in: emails },
+    }).select("email");
+
+    const existingEmails = users.map((u) => u.email);
+    const missingEmails = emails.filter(
+      (email) => !existingEmails.includes(email)
+    );
+
+    if (missingEmails.length > 0) {
+      return res.status(400).json({
+        error: "Some users do not exist",
+        missingEmails,
+      });
+    }
+
+    // Add emails to sharedUsers
+    album.sharedUsers.push(...emails);
+    await album.save();
+
+    return res.json({
+      message: "Album shared successfully",
+      sharedUsers: album.sharedUsers,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: "Failed to share album",
+    });
+  }
+});
+
+// Delete Album and all its images.
+app.delete("/albums/:albumId", async (req, res) => {
+  const { albumId } = req.params;
+
+  try {
+    const album = await Album.findByIdAndDelete(albumId);
+
+    if (!album) {
+      return res.status(404).json({ error: "Album not found." });
+    }
+
+    //  Delete all images linked to this album
+    await Image.deleteMany({ albumId });
+
+    return res.status(200).json({
+      message: "Album and all associated images deleted successfully.",
+      album: album,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to delete album." });
+  }
+});
+
+// Get All Albums
+app.get("/albums", async (req, res) => {
+  try {
+    const readAlbums = await Album.find();
+
+    return res.status(200).json(readAlbums);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to get albums." });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
