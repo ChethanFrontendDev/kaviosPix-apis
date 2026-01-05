@@ -33,23 +33,10 @@ const imageSchema = new mongoose.Schema(
       default: false,
     },
 
-    comments: [
-      {
-        text: {
-          type: String,
-          required: true,
-        },
-        commentedBy: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          required: true,
-        },
-        commentedAt: {
-          type: Date,
-          default: Date.now,
-        },
-      },
-    ],
+    comments: {
+      type: [String],
+      default: [],
+    },
 
     size: {
       type: Number, // bytes

@@ -349,6 +349,93 @@ app.post("/albums/:albumId/images", upload.single("file"), async (req, res) => {
   }
 });
 
+// Star Favorite Image
+app.put("/albums/:albumId/images/:imageId/favorite", async (req, res) => {
+  try {
+    const { albumId, imageId } = req.params;
+
+    const image = await Image.findOne({ _id: imageId, albumId });
+
+    if (!image) {
+      return res.status(404).json({
+        message: "Image not found in this album",
+      });
+    }
+
+    image.isFavorite = !image.isFavorite;
+    await image.save();
+
+    res.status(200).json({
+      message: "Favorite status updated",
+      isFavorite: image.isFavorite,
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Add Comments to Image
+app.post("/albums/:albumId/images/:imageId/comments", async (req, res) => {
+  try {
+    const { albumId, imageId } = req.params;
+    const { comment } = req.body;
+
+    if (!comment || !comment.trim()) {
+      return res.status(400).json({
+        message: "Comment is required",
+      });
+    }
+
+    const image = await Image.findOneAndUpdate(
+      { _id: imageId, albumId },
+      { $push: { comments: comment } },
+      { new: true }
+    );
+
+    if (!image) {
+      return res.status(404).json({
+        message: "Image not found in this album",
+      });
+    }
+
+    res.status(201).json({
+      message: "Comment added successfully",
+      comments: image.comments,
+    });
+  } catch (error) {
+    res.status(400).json({
+      message: error.message,
+    });
+  }
+});
+
+// Delete Image
+app.delete("/albums/:albumId/images/:imageId", async (req, res) => {
+  try {
+    const { albumId, imageId } = req.params;
+
+    //  Find image and ensure it belongs to album
+    const image = await Image.findOne({ _id: imageId, albumId });
+
+    if (!image) {
+      return res.status(404).json({
+        message: "Image not found in this album",
+      });
+    }
+
+    //  Delete from MongoDB
+    await Image.deleteOne({ _id: imageId });
+
+    res.status(200).json({
+      message: "Image deleted successfully",
+    });
+  } catch (error) {
+    res.status(400).json({
+      message: error.message,
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
