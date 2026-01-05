@@ -2,15 +2,14 @@ const mongoose = require("mongoose");
 
 const imageSchema = new mongoose.Schema(
   {
-    imageId: {
-      type: String, // UUID
-      required: true,
-      unique: true,
-    },
-
     albumId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Album",
+      required: true,
+    },
+
+    imageUrl: {
+      type: String,
       required: true,
     },
 

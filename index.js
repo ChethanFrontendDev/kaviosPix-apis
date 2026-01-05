@@ -9,6 +9,10 @@ const User = require("./models/User.model");
 const Album = require("./models/Album.model");
 const Image = require("./models/Image.model");
 const { verifyJWT } = require("./middleware/verifyJWT");
+const cloudinary = require("cloudinary");
+const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 
 const PORT = process.env.PORT || 4000;
@@ -24,6 +28,32 @@ app.use(express.json());
 app.use(cookieParser());
 
 initializeDatabase();
+
+// Cloudinary config
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Multer setup
+const upload = multer({
+  storage: multer.diskStorage({}),
+  limits: {
+    fileSize: 5 * 1024 * 1024, //  5MB max limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    if (!allowedExt.includes(ext)) {
+      return cb(
+        new Error("Only image file types are allowed (jpg, png, gif, webp)")
+      );
+    }
+    cb(null, true);
+  },
+});
 
 app.get("/", (req, res) => {
   res.send(`<h1>Welcome to Google OAuth</h1>`);
@@ -262,6 +292,60 @@ app.get("/albums", async (req, res) => {
     return res.status(200).json(readAlbums);
   } catch (error) {
     return res.status(500).json({ error: "Failed to get albums." });
+  }
+});
+
+// Upload Image
+app.post("/albums/:albumId/images", upload.single("file"), async (req, res) => {
+  try {
+    const { albumId } = req.params;
+    const { tags, person, isFavorite } = req.body;
+    const file = req.file;
+
+    //  Validate album exists
+    const album = await Album.findById(albumId);
+    if (!album) {
+      return res.status(404).json({ message: "Album not found" });
+    }
+
+    //  Validate file
+    if (!file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    //  Get file metadata
+    const fileStats = fs.statSync(file.path);
+
+    //  Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(file.path, {
+      folder: "albums",
+      resource_type: "image",
+    });
+
+    //  Parse tags safely
+    let parsedTags = [];
+    if (tags) {
+      parsedTags = Array.isArray(tags) ? tags : JSON.parse(tags);
+    }
+
+    //  Save metadata to MongoDB
+    const image = await Image.create({
+      albumId,
+      imageUrl: result.secure_url,
+      name: file.originalname,
+      size: fileStats.size,
+      tags: parsedTags,
+      person: person || "",
+      isFavorite: isFavorite === "true",
+      uploadedAt: new Date(),
+    });
+
+    res.status(201).json({
+      message: "Image uploaded successfully",
+      data: image,
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 
