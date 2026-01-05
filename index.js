@@ -436,6 +436,62 @@ app.delete("/albums/:albumId/images/:imageId", async (req, res) => {
   }
 });
 
+// Get All Images in an Album
+app.get("/albums/:albumId/images", async (req, res) => {
+  try {
+    const { albumId } = req.params;
+
+    const readAllImages = await Image.find({ albumId });
+
+    res.status(200).json(readAllImages);
+  } catch (error) {
+    res.status(400).json({
+      message: error.message,
+    });
+  }
+});
+
+// Get Favorite Images in an Album
+app.get("/albums/:albumId/images/favorites", async (req, res) => {
+  try {
+    const { albumId } = req.params;
+
+    const readFavoriteImages = await Image.find({
+      albumId,
+      isFavorite: true,
+    });
+
+    res.status(200).json(readFavoriteImages);
+  } catch (error) {
+    res.status(400).json({
+      message: error.message,
+    });
+  }
+});
+
+// Get Images by Tags
+app.get("/albums/:albumId/images", async (req, res) => {
+  try {
+    const { albumId } = req.params;
+    const { tags } = req.query;
+
+    const filter = { albumId };
+
+    // If tags query is provided, filter by tag
+    if (tags) {
+      filter.tags = tags; // matches images containing this tag
+    }
+
+    const readImages = await Image.find(filter);
+
+    res.status(200).json(readImages);
+  } catch (error) {
+    res.status(400).json({
+      message: error.message,
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
