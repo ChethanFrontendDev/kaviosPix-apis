@@ -144,7 +144,7 @@ app.get("/user/profile", verifyJWT, async (req, res) => {
 });
 
 // Create Album
-app.post("/albums", async (req, res) => {
+app.post("/albums", verifyJWT, async (req, res) => {
   try {
     const saveNewAlbum = new Album(req.body);
     const savedAlbum = await saveNewAlbum.save();
@@ -196,19 +196,19 @@ app.put("/albums/:albumId", async (req, res) => {
   }
 });
 
-//  Add Users to Album
+// Add Users to Album
 app.post("/albums/:albumId/share", async (req, res) => {
   const { albumId } = req.params;
   const { emails } = req.body;
 
-  //  Validate payload
+  // Validate payload
   if (!Array.isArray(emails) || emails.length === 0) {
     return res.status(400).json({
       error: "emails must be a non-empty array",
     });
   }
 
-  //  Validate email format
+  // Validate email format
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const invalidEmails = emails.filter((email) => !emailRegex.test(email));
 
@@ -220,7 +220,6 @@ app.post("/albums/:albumId/share", async (req, res) => {
   }
 
   try {
-    //  Find album
     const album = await Album.findById(albumId);
 
     if (!album) {
@@ -229,7 +228,7 @@ app.post("/albums/:albumId/share", async (req, res) => {
       });
     }
 
-    //  Ensure users exist in system
+    // Ensure users exist
     const users = await User.find({
       email: { $in: emails },
     }).select("email");
@@ -246,8 +245,18 @@ app.post("/albums/:albumId/share", async (req, res) => {
       });
     }
 
-    // Add emails to sharedUsers
-    album.sharedUsers.push(...emails);
+    // Prevent duplicates
+    const newEmails = emails.filter(
+      (email) => !album.sharedUsers.includes(email)
+    );
+
+    if (newEmails.length === 0) {
+      return res.status(400).json({
+        error: "All users are already shared with this album",
+      });
+    }
+
+    album.sharedUsers.push(...newEmails);
     await album.save();
 
     return res.json({
@@ -285,13 +294,24 @@ app.delete("/albums/:albumId", async (req, res) => {
 });
 
 // Get All Albums
-app.get("/albums", async (req, res) => {
+app.get("/albums", verifyJWT, async (req, res) => {
   try {
     const readAlbums = await Album.find();
 
     return res.status(200).json(readAlbums);
   } catch (error) {
     return res.status(500).json({ error: "Failed to get albums." });
+  }
+});
+
+// Get All Users
+app.get("/users", verifyJWT, async (req, res) => {
+  try {
+    const readUsers = await User.find();
+
+    return res.status(200).json(readUsers);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to get users." });
   }
 });
 
