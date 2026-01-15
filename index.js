@@ -85,7 +85,6 @@ app.get("/auth/google/callback", async (req, res) => {
         grant_type: "authorization_code",
         // redirect_uri: `http://localhost:${PORT}/auth/google/callback`,
         redirect_uri: `https://kavios-pix-apis.vercel.app/auth/google/callback`,
-
       }
     );
 
@@ -148,6 +147,17 @@ app.get("/user/profile", verifyJWT, async (req, res) => {
   );
 
   res.json({ user });
+});
+
+app.post("/auth/logout", (req, res) => {
+  res.clearCookie("access_token", {
+    httpOnly: true,
+    secure: true, 
+    sameSite: "none", 
+    path: "/",
+  });
+
+  res.status(200).json({ message: "Logged out" });
 });
 
 // Create Album
