@@ -43,7 +43,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, //  5MB max limit
   },
   fileFilter: (req, file, cb) => {
-    const allowedExt = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
+    const allowedExt = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"];
     const ext = path.extname(file.originalname).toLowerCase();
 
     if (!allowedExt.includes(ext)) {
@@ -173,7 +173,7 @@ app.post("/albums", verifyJWT, async (req, res) => {
 });
 
 // Update Album Description
-app.put("/albums/:albumId", async (req, res) => {
+app.put("/albums/:albumId", verifyJWT, async (req, res) => {
   const { albumId } = req.params;
   const { description } = req.body;
 
@@ -197,7 +197,7 @@ app.put("/albums/:albumId", async (req, res) => {
 });
 
 // Add Users to Album
-app.post("/albums/:albumId/share", async (req, res) => {
+app.post("/albums/:albumId/share", verifyJWT, async (req, res) => {
   const { albumId } = req.params;
   const { emails } = req.body;
 
@@ -271,7 +271,7 @@ app.post("/albums/:albumId/share", async (req, res) => {
 });
 
 // Delete Album and all its images.
-app.delete("/albums/:albumId", async (req, res) => {
+app.delete("/albums/:albumId", verifyJWT, async (req, res) => {
   const { albumId } = req.params;
 
   try {
@@ -316,121 +316,134 @@ app.get("/users", verifyJWT, async (req, res) => {
 });
 
 // Upload Image
-app.post("/albums/:albumId/images", upload.single("file"), async (req, res) => {
-  try {
-    const { albumId } = req.params;
-    const { tags, person, isFavorite } = req.body;
-    const file = req.file;
+app.post(
+  "/albums/:albumId/images",
+  verifyJWT,
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      const { albumId } = req.params;
+      const { tags, person, isFavorite } = req.body;
+      const file = req.file;
 
-    //  Validate album exists
-    const album = await Album.findById(albumId);
-    if (!album) {
-      return res.status(404).json({ message: "Album not found" });
+      //  Validate album exists
+      const album = await Album.findById(albumId);
+      if (!album) {
+        return res.status(404).json({ message: "Album not found" });
+      }
+
+      //  Validate file
+      if (!file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      //  Get file metadata
+      const fileStats = fs.statSync(file.path);
+
+      //  Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: "albums",
+        resource_type: "image",
+      });
+
+      //  Parse tags safely
+      let parsedTags = [];
+      if (tags) {
+        parsedTags = Array.isArray(tags) ? tags : JSON.parse(tags);
+      }
+
+      //  Save metadata to MongoDB
+      const image = await Image.create({
+        albumId,
+        imageUrl: result.secure_url,
+        name: file.originalname,
+        size: fileStats.size,
+        tags: parsedTags,
+        person: person || "",
+        isFavorite: isFavorite === "true",
+        uploadedAt: new Date(),
+      });
+
+      res.status(201).json({
+        message: "Image uploaded successfully",
+        data: image,
+      });
+    } catch (err) {
+      res.status(400).json({ message: err.message });
     }
-
-    //  Validate file
-    if (!file) {
-      return res.status(400).json({ message: "No file uploaded" });
-    }
-
-    //  Get file metadata
-    const fileStats = fs.statSync(file.path);
-
-    //  Upload to Cloudinary
-    const result = await cloudinary.uploader.upload(file.path, {
-      folder: "albums",
-      resource_type: "image",
-    });
-
-    //  Parse tags safely
-    let parsedTags = [];
-    if (tags) {
-      parsedTags = Array.isArray(tags) ? tags : JSON.parse(tags);
-    }
-
-    //  Save metadata to MongoDB
-    const image = await Image.create({
-      albumId,
-      imageUrl: result.secure_url,
-      name: file.originalname,
-      size: fileStats.size,
-      tags: parsedTags,
-      person: person || "",
-      isFavorite: isFavorite === "true",
-      uploadedAt: new Date(),
-    });
-
-    res.status(201).json({
-      message: "Image uploaded successfully",
-      data: image,
-    });
-  } catch (err) {
-    res.status(400).json({ message: err.message });
   }
-});
+);
 
 // Star Favorite Image
-app.put("/albums/:albumId/images/:imageId/favorite", async (req, res) => {
-  try {
-    const { albumId, imageId } = req.params;
+app.put(
+  "/albums/:albumId/images/:imageId/favorite",
+  verifyJWT,
+  async (req, res) => {
+    try {
+      const { albumId, imageId } = req.params;
 
-    const image = await Image.findOne({ _id: imageId, albumId });
+      const image = await Image.findOne({ _id: imageId, albumId });
 
-    if (!image) {
-      return res.status(404).json({
-        message: "Image not found in this album",
+      if (!image) {
+        return res.status(404).json({
+          message: "Image not found in this album",
+        });
+      }
+
+      image.isFavorite = !image.isFavorite;
+      await image.save();
+
+      res.status(200).json({
+        message: "Favorite status updated",
+        isFavorite: image.isFavorite,
       });
+    } catch (error) {
+      res.status(400).json({ message: error.message });
     }
-
-    image.isFavorite = !image.isFavorite;
-    await image.save();
-
-    res.status(200).json({
-      message: "Favorite status updated",
-      isFavorite: image.isFavorite,
-    });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
   }
-});
+);
 
 // Add Comments to Image
-app.post("/albums/:albumId/images/:imageId/comments", async (req, res) => {
-  try {
-    const { albumId, imageId } = req.params;
-    const { comment } = req.body;
+app.post(
+  "/albums/:albumId/images/:imageId/comments",
+  verifyJWT,
+  async (req, res) => {
+    try {
+      const { albumId, imageId } = req.params;
+      const { comment } = req.body;
 
-    if (!comment || !comment.trim()) {
-      return res.status(400).json({
-        message: "Comment is required",
+      if (!comment || !comment.trim()) {
+        return res.status(400).json({
+          message: "Comment is required",
+        });
+      }
+
+      const image = await Image.findOneAndUpdate(
+        { _id: imageId, albumId },
+        { $push: { comments: comment } },
+        { new: true }
+      );
+
+      if (!image) {
+        return res.status(404).json({
+          message: "Image not found in this album",
+        });
+      }
+
+      res.status(201).json({
+        message: "Comment added successfully",
+        comments: image.comments,
+      });
+    } catch (error) {
+      res.status(400).json({
+        message: error.message,
       });
     }
-
-    const image = await Image.findOneAndUpdate(
-      { _id: imageId, albumId },
-      { $push: { comments: comment } },
-      { new: true }
-    );
-
-    if (!image) {
-      return res.status(404).json({
-        message: "Image not found in this album",
-      });
-    }
-
-    res.status(201).json({
-      message: "Comment added successfully",
-      comments: image.comments,
-    });
-  } catch (error) {
-    res.status(400).json({
-      message: error.message,
-    });
   }
-});
+);
 
 // Delete Image
-app.delete("/albums/:albumId/images/:imageId", async (req, res) => {
+app.delete("/albums/:albumId/images/:imageId", verifyJWT, async (req, res) => {
   try {
     const { albumId, imageId } = req.params;
 
@@ -457,7 +470,7 @@ app.delete("/albums/:albumId/images/:imageId", async (req, res) => {
 });
 
 // Get All Images in an Album
-app.get("/albums/:albumId/images", async (req, res) => {
+app.get("/albums/:albumId/images", verifyJWT, async (req, res) => {
   try {
     const { albumId } = req.params;
 
@@ -472,7 +485,7 @@ app.get("/albums/:albumId/images", async (req, res) => {
 });
 
 // Get Favorite Images in an Album
-app.get("/albums/:albumId/images/favorites", async (req, res) => {
+app.get("/albums/:albumId/images/favorites", verifyJWT, async (req, res) => {
   try {
     const { albumId } = req.params;
 
@@ -490,7 +503,7 @@ app.get("/albums/:albumId/images/favorites", async (req, res) => {
 });
 
 // Get Images by Tags
-app.get("/albums/:albumId/images", async (req, res) => {
+app.get("/albums/:albumId/images/by-tag", verifyJWT, async (req, res) => {
   try {
     const { albumId } = req.params;
     const { tags } = req.query;
@@ -499,7 +512,8 @@ app.get("/albums/:albumId/images", async (req, res) => {
 
     // If tags query is provided, filter by tag
     if (tags) {
-      filter.tags = tags; // matches images containing this tag
+      // matches images containing this tag
+      filter.tags = { $regex: tags, $options: "i" };
     }
 
     const readImages = await Image.find(filter);
