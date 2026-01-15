@@ -21,7 +21,8 @@ const app = express();
 app.use(
   cors({
     credentials: true,
-    origin: "http://localhost:3000",
+    // origin: "http://localhost:3000",
+    origin: "https://kavios-pix-ui.vercel.app/",
   })
 );
 app.use(express.json());
@@ -152,8 +153,8 @@ app.get("/user/profile", verifyJWT, async (req, res) => {
 app.post("/auth/logout", (req, res) => {
   res.clearCookie("access_token", {
     httpOnly: true,
-    secure: true, 
-    sameSite: "none", 
+    secure: true,
+    sameSite: "none",
     path: "/",
   });
 
