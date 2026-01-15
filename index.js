@@ -21,8 +21,7 @@ const app = express();
 app.use(
   cors({
     credentials: true,
-    // origin: "http://localhost:3000",
-    origin: "https://kavios-pix-ui.vercel.app/",
+    origin: "https://kavios-pix-ui.vercel.app/" || "http://localhost:3000",
   })
 );
 app.use(express.json());
@@ -60,11 +59,6 @@ app.get("/", (req, res) => {
   res.send(`<h1>Welcome to Google OAuth</h1>`);
 });
 
-// app.get("/auth/google", (req, res) => {
-//   const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=http://localhost:${PORT}/auth/google/callback&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=consent`;
-
-//   res.redirect(googleAuthUrl);
-// });
 app.get("/auth/google", (req, res) => {
   const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=https://kavios-pix-apis.vercel.app/auth/google/callback&response_type=code&scope=openid%20email%20profile&access_type=offline&prompt=consent`;
 
@@ -84,7 +78,6 @@ app.get("/auth/google/callback", async (req, res) => {
         client_secret: process.env.GOOGLE_CLIENT_SECRET,
         code,
         grant_type: "authorization_code",
-        // redirect_uri: `http://localhost:${PORT}/auth/google/callback`,
         redirect_uri: `https://kavios-pix-apis.vercel.app/auth/google/callback`,
       }
     );
@@ -530,8 +523,7 @@ app.get("/albums/:albumId/images/by-tag", verifyJWT, async (req, res) => {
 
     // If tags query is provided, filter by tag
     if (tags) {
-      // matches images containing this tag
-      filter.tags = { $regex: tags, $options: "i" };
+      filter.tags = { $regex: tags, $options: "i" }; // matches images containing this tag
     }
 
     const readImages = await Image.find(filter);
