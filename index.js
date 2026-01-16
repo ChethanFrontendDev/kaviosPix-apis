@@ -21,7 +21,7 @@ const app = express();
 app.use(
   cors({
     credentials: true,
-    origin: "https://kavios-pix-ui.vercel.app/" || "http://localhost:3000",
+    origin: ["https://kavios-pix-ui.vercel.app", "http://localhost:3000"],
   })
 );
 app.use(express.json());
