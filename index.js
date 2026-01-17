@@ -19,8 +19,6 @@ const PORT = process.env.PORT || 4000;
 
 const app = express();
 
-// app.set("trust proxy", 1);
-
 app.use(
   cors({
     credentials: true,
@@ -133,13 +131,11 @@ app.get("/auth/google/callback", async (req, res) => {
     // 7. Redirect to frontend
     res.redirect(`${process.env.FRONTEND_URL}/v2/profile/google`);
   } catch (err) {
-    // console.error(err);
     console.error("OAuth error:", err.response?.data || err);
     return res.status(500).json({
       error: "Google OAuth failed",
       details: err.response?.data || err.message,
     });
-    // res.status(500).send("Google OAuth failed");
   }
 });
 
