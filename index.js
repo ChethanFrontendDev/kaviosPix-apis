@@ -133,8 +133,13 @@ app.get("/auth/google/callback", async (req, res) => {
     // 7. Redirect to frontend
     res.redirect(`${process.env.FRONTEND_URL}/v2/profile/google`);
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Google OAuth failed");
+    // console.error(err);
+    console.error("OAuth error:", err.response?.data || err);
+    return res.status(500).json({
+      error: "Google OAuth failed",
+      details: err.response?.data || err.message,
+    });
+    // res.status(500).send("Google OAuth failed");
   }
 });
 
